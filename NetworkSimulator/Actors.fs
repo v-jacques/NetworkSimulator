@@ -51,7 +51,7 @@ module Actors =
 
         override m.OnReceive msg =
             match msg with
-            | :? AddRouterTableEntry as entry -> m.RouterTable.Add entry
+            | :? RouterTableEntry as entry -> m.RouterTable.Add entry
             | _ -> failwith("Incorrect message: " + msg.ToString())
 
     let private CreateNode (node:string) (system:ActorSystem) =
