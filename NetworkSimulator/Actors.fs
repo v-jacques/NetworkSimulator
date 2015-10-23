@@ -32,12 +32,15 @@ module Actors =
         // ex: 05, 192.168.0.1
 
         override m.OnReceive msg =
-            ()
+            match msg with
+            | :? InputCommand as input -> ()
+            | _ -> failwith("Incorrect message: " + msg.ToString())
 
     type Router(addresses: (string * string) list) =
         inherit UntypedActor()
 
         member val RouterTable = List<RouterTableEntry>() with get, set
+        member m.Ports = addresses
 
         // interfaces, router table, arp table
         // arp table: mac, ip
@@ -50,7 +53,6 @@ module Actors =
             match msg with
             | :? AddRouterTableEntry as entry -> m.RouterTable.Add entry
             | _ -> failwith("Incorrect message: " + msg.ToString())
-            ()
 
     let private CreateNode (node:string) (system:ActorSystem) =
         let split = node.Split ','
@@ -64,13 +66,11 @@ module Actors =
             portsList.Add(split.[2+i], split.[3+i])
 
         system.ActorOf(Props.CreateFun(fun () -> Router(portsList |> List.ofSeq)), split.[0]) |> ignore
-        ()
 
     let private CreateRouterTable (routerTable:string) (system:ActorSystem) =
         let split = routerTable.Split ','
         let router = system.ActorSelection("user/"+split.[0])
         router.Tell(split.[1], split.[2], split.[3] : RouterTableEntry)
-        ()
 
     let CreateActors (topology:string list) (system:ActorSystem) =
         let nodeStart = List.findIndex (fun x -> obj.Equals(x, "#NODE")) topology

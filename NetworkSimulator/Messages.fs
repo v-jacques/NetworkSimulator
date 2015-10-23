@@ -4,3 +4,4 @@
 
 type RouterTableEntry = string * string * string
 type AddRouterTableEntry = RouterTableEntry
+type InputCommand = string * string * string
