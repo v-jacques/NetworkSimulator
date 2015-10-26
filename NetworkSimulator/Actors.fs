@@ -16,8 +16,17 @@ module Actors =
         static member CreateFun<'T when 'T :> ActorBase>(fn: unit -> 'T, ?supervisorStrategy: SupervisorStrategy) = 
             FunProps(fn, ?supervisorStrategy = supervisorStrategy) :> Props
     
-    type Node(mac, ip, gateway) =
+    let SameSubNetwork n1 n2 mask =
+        // TO DO
+        ()
+
+    type Node(mac, ip : string, gateway) =
         inherit UntypedActor()
+
+        member m.MAC = mac
+        member m.IP = (ip.Split '/').[0]
+        member m.Mask = (ip.Split '/').[1]
+        member m.Gateway = gateway
 
         // nome, mac, ip, subrede, gateway padrao, arp table
         // arp table: mac, ip
@@ -25,7 +34,20 @@ module Actors =
 
         override m.OnReceive msg =
             match msg with
-            | :? InputCommand as input -> ()
+            | :? InputCommand as input ->
+                let comm, source, destination = input
+
+                if SameSubNetwork source destination m.Mask then
+                    ()
+                else
+                    ()
+
+                if comm = "ping" then
+                    ()
+                else if comm = "traceroute" then
+                    ()
+                else
+                    failwith("Invalid command: " + comm) 
             | _ -> failwith("Incorrect message: " + msg.ToString())
 
     type Router(addresses: (string * string) list) =
