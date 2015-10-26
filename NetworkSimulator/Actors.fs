@@ -6,14 +6,6 @@ open Akka.FSharp
 open System
 open System.Collections.Generic
 
-// mensagems: arp request, arp reply, icmp echo request, ping, icmp echo reply
-
-// icmp echo request: mac destino, mac origem, tipo, ip origem, ip destino, ttl, tipo pacote, codigo
-// ex: 05, 01, ip, 192.168.0.2, 192.168.1.2, 8, icmp, echo req
-// ex2: 03, 06, ip, 192.168.0.2, 192.168.1.2, 7, icmp, echo req
-
-// icmp echo reply: 01, 05, 192.168.1.2, 192.168.0.2, 7, icmp, echo reply
-
 [<AutoOpen>]
 module Actors =
     type internal FunProps<'T when 'T :> ActorBase>(fn: unit -> 'T, ?supervisorStrategy: SupervisorStrategy) =
