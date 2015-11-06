@@ -21,7 +21,7 @@ module Actors =
         
         override m.OnReceive msg = 
             match msg with
-            | :? PingAsk -> Node.Context.Sender.Tell(m.IP)
+            | :? PingAsk -> UntypedActor.Context.Sender.Tell(m.IP)
             | :? InputCommand as input -> 
                 let comm, source, destination = input
                 
