@@ -39,12 +39,15 @@ module Util =
         | "C" -> "255.255.255.0"
         | _ -> failwith "Error getting default subnet mask."
     
-    let getSubnetRange ip mask = 
-        let ipClass = getIPClass ip
-        let defaultMask = getDefaultMask ipClass
-        ()
-    
-    let sameSubnet ip1 ip2 mask = ()
+    let sameSubnet ip1 ip2 (mask : string) = 
+        let ip1octets = stringToBinaryOctets ip1
+        let ip2octets = stringToBinaryOctets ip2
+
+        let mutable result = true
+        
+        for b in 0..int (mask) do
+            if ip1octets.Chars b <> ip2octets.Chars b then result <- false
+        result
     
     type internal FunProps<'T when 'T :> ActorBase>(fn : unit -> 'T, ?supervisorStrategy : SupervisorStrategy) = 
         inherit Props(typeof<'T>, defaultArg supervisorStrategy null, null)

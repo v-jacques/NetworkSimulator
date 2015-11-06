@@ -14,18 +14,32 @@ module Actors =
         member m.IP = (ip.Split '/').[0]
         member m.Mask = (ip.Split '/').[1]
         member m.Gateway = gateway
+        
         // nome, mac, ip, subrede, gateway padrao, arp table
         // arp table: mac, ip
         // ex: 05, 192.168.0.1
+        
         override m.OnReceive msg = 
             match msg with
+            | :? PingAsk -> Node.Context.Sender.Tell(m.IP)
             | :? InputCommand as input -> 
                 let comm, source, destination = input
-                //                if SameSubNetwork source destination m.Mask then ()
-                //                else ()
-                if comm = "ping" then ()
-                else if comm = "traceroute" then ()
-                else failwith ("Invalid command: " + comm)
+                
+                let destIP = UntypedActor.Context.ActorSelection("../" + destination).Ask(() : PingAsk).Result :?> string
+
+                if sameSubnet m.IP destIP m.Mask then
+                    //send directly
+                    ()
+                else
+                    //send do default gateway
+                    ()
+
+                if comm = "ping" then
+                    ()
+                else if comm = "traceroute" then
+                    ()
+                else
+                    failwith ("Invalid command: " + comm)
             | _ -> failwith ("Incorrect message: " + msg.ToString())
     
     type Router(addresses : (string * string) list) = 
