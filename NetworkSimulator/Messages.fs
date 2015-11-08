@@ -1,56 +1,50 @@
 ﻿namespace Jacques.NetworkSimulator
 
+type HostsEntry = string * string
+
+type HostsAsk = 
+    { Information : string
+      Value : string }
+
+type ARPTableEntry = string * string
+
 type RouterTableEntry = string * string * string
 
 type InputCommand = string * string * string
 
-type PingAsk = unit
+type PacketType = 
+    | ICMP
+    | ARP
 
-// icmp echo request: mac destino, mac origem, tipo, ip origem, ip destino, ttl, tipo pacote, codigo
-// ex: 05, 01, ip, 192.168.0.2, 192.168.1.2, 8, icmp, echo req
-// ex2: 03, 06, ip, 192.168.0.2, 192.168.1.2, 7, icmp, echo req
-type ICMPEchoRequest = 
-    { MACSource : string
-      MACDestination : string
-      Type : string
-      IPSource : string
-      IPDestination : string
-      TTL : int
-      PackageType : string
-      Code : string }
+type PacketCode = 
+    | ICMPEchoRequest
+    | ICMPEchoReply
+    | ICMPTimeExceeded
+    | ARPRequest
+    | ARPReply
 
-// icmp echo reply: 01, 05, 192.168.1.2, 192.168.0.2, 7, icmp, echo reply
-type ICMPEchoReply = 
-    { MACSource : string
-      MACDestination : string
-      Type : string
-      IPSource : string
-      IPDestination : string
-      TTL : int
-      PackageType : string
-      Code : string }
-
-// mac origem, mac destino, ip origem, ip destino, ttl???
-type ICMPTimeExceeded = 
-    { MACSource : string
-      MACDestination : string
-      Type : string
-      IPSource : string
-      IPDestination : string
-      TTL : int
-      PackageType : string
-      Code : string }
-
-// mac origem, mac destino, ip origem, ip destino
-type ARPRequest = 
-    { MACSource : string
-      MACDestination : string
-      IPSource : string
-      IPDestination : string }
-
-// mac origem, mac destino, ip origem, ip destino
-type ARPReply = 
-    { MACSource : string
-      MACDestination : string
-      IPSource : string
-      IPDestination : string }
+type Packet(macSource, macDest, ipSource, ipDest, ttl, typ, code) = 
+    member m.MACSource = macSource
+    member m.MACDestination = macDest
+    member m.IPSource = ipSource
+    member m.IPDestination = ipDest
+    member m.TTL = ttl
+    member m.Type = typ
+    member m.Code = code
+    member m.Print() = 
+        match m.Type with
+        | PacketType.ARP -> 
+            let code = 
+                match m.Code with
+                | PacketCode.ARPRequest -> "ARP_REQUEST"
+                | PacketCode.ARPReply -> "ARP_REPLY"
+                | _ -> failwith "Incorrect packet code: " + m.Code.ToString()
+            printfn "%s|%s,%s|%s,%s" code m.MACSource m.MACDestination m.IPSource m.IPDestination
+        | PacketType.ICMP -> 
+            let code = 
+                match m.Code with
+                | PacketCode.ICMPEchoRequest -> "ICMP_ECHOREQUEST"
+                | PacketCode.ICMPEchoReply -> "ICMP_ECHOREPLY"
+                | PacketCode.ICMPTimeExceeded -> "ICMP_TIMEEXCEEDED"
+                | _ -> failwith "Incorrect packet code: " + m.Code.ToString()
+            printfn "%s|%s,%s|%s,%s|%i" code m.MACSource m.MACDestination m.IPSource m.IPDestination m.TTL
