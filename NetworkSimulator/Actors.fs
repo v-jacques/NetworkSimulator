@@ -1,6 +1,5 @@
 ﻿namespace Jacques.NetworkSimulator
 
-open Akka
 open Akka.Actor
 open Akka.FSharp
 open System
@@ -40,45 +39,123 @@ module Actors =
             | :? InputCommand as input -> 
                 let comm, _, destination = input
                 
-                let destIP = hosts.Ask({ Information = "ip"; Value = destination }).Result :?> string
+                let originalDestIP = hosts.Ask({ Information = "ip"; Value = destination }).Result :?> string
 
-                let sendTo =
-                    match sameSubnet m.IP destIP m.Mask with
-                    | true -> UntypedActor.Context.ActorSelection("../" + destination)
+                let sendTo, destIP =
+                    match sameSubnet m.IP originalDestIP m.Mask with
+                    | true ->
+                        UntypedActor.Context.ActorSelection("../" + destination), originalDestIP
                     | false ->
                         let name = hosts.Ask({ Information = "name"; Value = m.Gateway }).Result :?> string
-                        UntypedActor.Context.ActorSelection("../" + name)
+                        UntypedActor.Context.ActorSelection("../" + name), m.Gateway
 
-                let destMAC, packetType, packetCode =
-                    match List.tryFind (fun ((_,y):ARPTableEntry) -> y = destIP) (List.ofSeq m.ARPTable) with
-                    | Some (x,_) -> x, PacketType.ICMP, PacketCode.ICMPEchoRequest
-                    | None -> "FF:FF:FF:FF:FF:FF", PacketType.ARP, PacketCode.ARPRequest
+                let destMAC, packetType, packetCode = "FF:FF:FF:FF:FF:FF", PacketType.ARP, PacketCode.ARPRequest
                 
-                let packet = Packet(m.MAC, destMAC, m.IP, destIP, 0, packetType, packetCode)
+                let arpPacket = Packet(m.MAC, destMAC, m.IP, destIP, 0, packetType, packetCode)
                 
                 match comm with
                 | "ping" ->
-                    sendTo.Tell(packet)
+                    let arpResponse = sendTo.Ask(arpPacket).Result :?> Packet
+                    arpResponse.Print()
+                    m.ARPTable.Add (arpResponse.IPSource, arpResponse.MACSource)
+                    
+                    let icmpPacket = Packet(m.MAC, arpResponse.MACSource, m.IP, originalDestIP, 8, PacketType.ICMP, PacketCode.ICMPEchoRequest)
+                    let icmpResponse = sendTo.Ask(icmpPacket).Result :?> Packet
+                    icmpResponse.Print()
+
                 | "traceroute" -> failwith "Not implemented."
                 | _ -> failwith ("Invalid command: " + comm)
+            
             | :? Packet as packet ->
                 packet.Print()
+
                 match packet.Type with
-                | PacketType.ARP -> ()
-                    //match code
-                | PacketType.ICMP -> ()
-                    //match code
+                | PacketType.ARP ->
+                    match packet.Code with
+                    | PacketCode.ARPRequest ->
+                        let response = Packet(m.MAC, packet.MACSource, m.IP, packet.IPSource, 0, PacketType.ARP, PacketCode.ARPReply)
+                        m.ARPTable.Add (packet.IPSource, packet.MACSource)
+                        UntypedActor.Context.Sender.Tell(response)
+                    | _ -> failwith "???"
+
+                | PacketType.ICMP ->
+                    match packet.Code with
+                    | PacketCode.ICMPEchoRequest ->
+                        let response = Packet(m.MAC, packet.MACSource, m.IP, packet.IPSource, 8, PacketType.ICMP, PacketCode.ICMPEchoReply)
+                        UntypedActor.Context.Sender.Tell(response)
+                    | _ -> failwith "???"
+
             | _ -> failwith ("Incorrect message: " + msg.ToString())
     
-    type Router(addresses : (string * string) list) = 
+    type Router(addresses : (string * string) list, hosts : IActorRef) = 
         inherit UntypedActor()
         member val RouterTable = List<RouterTableEntry>() with get, set
         member val ARPTable = List<ARPTableEntry>() with get, set
         member m.Ports = addresses
-        
+        member m.HostsFile = hosts
+
         override m.OnReceive msg = 
             match msg with
             | :? RouterTableEntry as entry -> m.RouterTable.Add entry
+
+            | :? Packet as packet ->
+                packet.Print()
+
+                match packet.Type with
+                | PacketType.ARP ->
+                    match packet.Code with
+                    | PacketCode.ARPRequest ->
+                        let macResponse = fst (List.find (fun (_,y) -> y = packet.IPDestination) m.Ports)
+                        let response = Packet(macResponse, packet.MACSource, packet.IPDestination, packet.IPSource, 0, PacketType.ARP, PacketCode.ARPReply)
+                        m.ARPTable.Add (packet.IPSource, packet.MACSource)
+                        UntypedActor.Context.Sender.Tell(response)
+                    | _ -> failwith "???"
+
+                | PacketType.ICMP ->
+                    if packet.TTL-1 <= 0 then
+                        let timeExceeded = Packet(packet.MACDestination, packet.MACSource, packet.IPDestination, packet.IPSource, 8, PacketType.ICMP, PacketCode.ICMPTimeExceeded)
+                        UntypedActor.Context.Sender.Tell(timeExceeded)
+
+                    match packet.Code with
+                    | PacketCode.ICMPEchoRequest ->
+                        match List.tryFind (fun (_,y) -> y = packet.IPDestination) m.Ports with
+                        | Some (mac,ip) -> // ping/traceroute to router - return imcp echo reply
+                            let response = Packet(mac, packet.MACSource, ip, packet.IPSource, 8, PacketType.ICMP, PacketCode.ICMPEchoReply)
+                            UntypedActor.Context.Sender.Tell(response)
+                        | None -> // forward ping/traceroute somewhere else
+                            match List.tryFind (fun (x, y) -> x = packet.IPDestination) (List.ofSeq m.ARPTable) with
+                            | Some (mac, ip) -> //achou - forward icmp echo request
+                                let forward = Packet("", mac, "", ip, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoRequest)
+                                let forwardName = m.HostsFile.Ask({ Information = "name"; Value = ip }).Result :?> string
+                                let forwardResponse = UntypedActor.Context.ActorSelection("../" + forwardName).Ask(forward).Result :?> Packet
+                                forwardResponse.Print()
+
+                                let response = Packet("", packet.MACSource, "", packet.IPSource, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoReply)
+                                UntypedActor.Context.Sender.Tell(response)
+
+                            | None -> // unknown mac, arp request and then forward icmp
+                                let dest, nextHop, port = List.find (fun (x:string,_,_) -> sameSubnet packet.IPDestination ((x.Split '/').[0]) ((x.Split '/').[1])) (List.ofSeq m.RouterTable)
+
+                                match nextHop with // ???
+                                | "0.0.0.0" -> () //send directly
+                                | _ -> () //send to another router
+
+                                let macSource, ipSource = m.Ports.[int(port)]
+
+                                let arpPacket = Packet(macSource, "FF:FF:FF:FF:FF:FF", ipSource, packet.IPDestination, 0, PacketType.ARP, PacketCode.ARPRequest)
+                                let arpName = m.HostsFile.Ask({ Information = "name"; Value = packet.IPDestination }).Result :?> string
+                                let arpResponse = UntypedActor.Context.ActorSelection("../" + arpName).Ask(arpPacket).Result :?> Packet
+                                arpResponse.Print()
+
+                                let icmpPacket = Packet(macSource, arpResponse.MACSource, packet.IPSource, packet.IPDestination, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoRequest)
+                                let icmpResponse = UntypedActor.Context.ActorSelection("../" + arpName).Ask(icmpPacket).Result :?> Packet
+                                icmpResponse.Print()
+
+                                let response = Packet(packet.MACDestination, packet.MACSource, packet.IPDestination, packet.IPSource, icmpResponse.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoReply)
+                                UntypedActor.Context.Sender.Tell(response)
+                                    
+                    | _ -> failwith "???"
+
             | _ -> failwith ("Incorrect message: " + msg.ToString())
     
     let private createNode (node : string) (system : ActorSystem) (hosts : IActorRef) = 
@@ -97,11 +174,11 @@ module Actors =
         let portsNumber = Int32.Parse split.[1]
         let portsList = new List<string * string>()
 
-        for i = 0 to portsNumber do
-            portsList.Add(split.[2 + i], split.[3 + i])
-            hosts.Tell(name, split.[3 + i]:HostsEntry)
+        for i in 0..2..portsNumber do
+            portsList.Add(split.[2 + i], ((split.[3 + i]).Split '/').[0])
+            hosts.Tell(name, ((split.[3 + i]).Split '/').[0]:HostsEntry)
 
-        system.ActorOf(Props.CreateFun(fun () -> Router(portsList |> List.ofSeq)), name) |> ignore
+        system.ActorOf(Props.CreateFun(fun () -> Router(portsList |> List.ofSeq, hosts)), name) |> ignore
     
     let private createRouterTable (routerTable : string) (system : ActorSystem) = 
         let split = routerTable.Split ','
