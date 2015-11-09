@@ -93,7 +93,7 @@ module Actors =
                         let response = Packet(m.MAC, packet.MACSource, m.IP, packet.IPSource, 0, PacketType.ARP, PacketCode.ARPReply)
                         m.ARPTable.Add (packet.IPSource, packet.MACSource)
                         UntypedActor.Context.Sender.Tell(response)
-                    | _ -> failwith "???"
+                    | _ -> failwith ("Unexpected packet type:" + packet.Type.ToString())
 
                 | PacketType.ICMP ->
                     match packet.Code with
@@ -101,7 +101,7 @@ module Actors =
                     | PacketCode.ICMPEchoRequest ->
                         let response = Packet(m.MAC, packet.MACSource, m.IP, packet.IPSource, 8, PacketType.ICMP, PacketCode.ICMPEchoReply)
                         UntypedActor.Context.Sender.Tell(response)
-                    | _ -> failwith "???"
+                    | _ -> failwith ("Unexpected packet type:" + packet.Type.ToString())
 
             | _ -> failwith ("Incorrect message: " + msg.ToString())
     
@@ -146,12 +146,15 @@ module Actors =
                             | None -> // forward ping/traceroute somewhere else
                                 match List.tryFind (fun (x, y) -> x = packet.IPDestination) (List.ofSeq m.ARPTable) with
                                 | Some (mac, ip) -> //achou - forward icmp echo request
-                                    let forward = Packet("", mac, "", ip, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoRequest)
+                                    let _, _, port = List.find (fun (x:string,_,_) -> sameSubnet packet.IPDestination ((x.Split '/').[0]) ((x.Split '/').[1])) (List.ofSeq m.RouterTable)
+                                    let macSource, ipSource = m.Ports.[int(port)]
+
+                                    let forward = Packet(macSource, mac, ipSource, ip, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoRequest)
                                     let forwardName = m.HostsFile.Ask({ Information = "name"; Value = ip }).Result :?> string
                                     let forwardResponse = UntypedActor.Context.ActorSelection("../" + forwardName).Ask(forward).Result :?> Packet
                                     forwardResponse.Print()
 
-                                    let response = Packet("", packet.MACSource, "", packet.IPSource, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoReply)
+                                    let response = Packet(macSource, packet.MACSource, ipSource, packet.IPSource, packet.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoReply)
                                     UntypedActor.Context.Sender.Tell(response)
 
                                 | None -> // unknown mac, arp request and then forward icmp
@@ -176,7 +179,7 @@ module Actors =
                                     let response = Packet(packet.MACDestination, packet.MACSource, packet.IPDestination, packet.IPSource, icmpResponse.TTL-1, PacketType.ICMP, PacketCode.ICMPEchoReply)
                                     UntypedActor.Context.Sender.Tell(response)
                                     
-                        | _ -> failwith "???"
+                        | _ -> failwith ("Unexpected packet type:" + packet.Type.ToString())
 
             | _ -> failwith ("Incorrect message: " + msg.ToString())
     
