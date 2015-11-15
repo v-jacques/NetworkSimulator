@@ -161,7 +161,12 @@ module Actors =
                                     UntypedActor.Context.Sender.Tell(response)
 
                                 | None -> // unknown mac, arp request and then forward icmp
-                                    let network, nextHop, port = List.find (fun (x:string,_,_) -> sameSubnet packet.IPDestination ((x.Split '/').[0]) ((x.Split '/').[1])) (List.ofSeq m.RouterTable)
+                                    let network, nextHop, port = 
+                                        match List.tryFind (fun (x:string,_,_) -> sameSubnet packet.IPDestination ((x.Split '/').[0]) ((x.Split '/').[1])) (List.ofSeq m.RouterTable) with
+                                        | Some (x,y,z) -> x,y,z // found next hop in router table
+                                        | None -> match List.tryFind (fun (x:string,_,_) -> x = "0.0.0.0/0") (List.ofSeq m.RouterTable) with
+                                            | Some (x,y,z) -> x,y,z // found default gateway
+                                            | None -> failwith (UntypedActor.Context.Self.Path.Name + " has nowhere to send packet. Router table is incomplete.")
 
                                     let dest =
                                         match (nextHop.Split '/').[0] with
